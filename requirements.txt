@@ -1,0 +1,7 @@
+fastapi==0.115.12
+uvicorn==0.34.2
+pydantic==2.11.3
+streamlit==1.44.1
+requests==2.32.3
+ollama==0.4.8
+python-multipart==0.0.20
