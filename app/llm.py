@@ -1,8 +1,9 @@
 import json
 
-from ollama import chat
+from ollama import ResponseError, chat, list
 from pydantic import ValidationError
 
+from app.config import DEFAULT_TRIAGE_MODEL
 from app.schemas import LLMTriageOutput, TriageRequest
 
 
@@ -46,15 +47,40 @@ def _build_user_prompt(payload: TriageRequest) -> str:
     )
 
 
-def triage_with_llm(payload: TriageRequest, model: str = "medgemma") -> LLMTriageOutput:
-    response = chat(
-        model=model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": _build_user_prompt(payload)},
-        ],
-        options={"temperature": 0},
-    )
+class ModelNotFoundError(Exception):
+    pass
+
+
+def resolve_model(model: str | None) -> str:
+    return (model or DEFAULT_TRIAGE_MODEL).strip()
+
+
+def list_available_models() -> list[str]:
+    try:
+        response = list()
+        return [m.model for m in response.models]
+    except Exception:
+        return []
+
+
+def triage_with_llm(payload: TriageRequest, model: str | None = None) -> LLMTriageOutput:
+    resolved_model = resolve_model(model or payload.model)
+    try:
+        response = chat(
+            model=resolved_model,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": _build_user_prompt(payload)},
+            ],
+            options={"temperature": 0},
+        )
+    except ResponseError as exc:
+        if exc.status_code == 404:
+            raise ModelNotFoundError(
+                f"Ollama model '{resolved_model}' not found. Pull it first (ollama pull {resolved_model}) "
+                "or choose a different model in the UI."
+            ) from exc
+        raise
     content = response.message.content.strip()
 
     try:

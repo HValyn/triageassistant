@@ -24,6 +24,19 @@ if "chat_history" not in st.session_state:
         ("assistant", "Hi, I can help with intake. Share your name, age, symptoms, duration, and severity (0-10).")
     ]
 
+if "selected_model" not in st.session_state:
+    st.session_state.selected_model = ""
+
+
+def fetch_models() -> tuple[str, list[str]]:
+    try:
+        r = requests.get(f"{API_BASE}/models", timeout=20)
+        r.raise_for_status()
+        payload = r.json()
+        return payload["default_model"], payload["available_models"]
+    except requests.RequestException:
+        return "medgemma:4b", []
+
 
 def run_triage(payload: dict) -> None:
     response = requests.post(f"{API_BASE}/triage", json=payload, timeout=60)
@@ -51,6 +64,13 @@ def run_triage(payload: dict) -> None:
 
 tab1, tab2 = st.tabs(["Conversational Intake", "Manual Form"])
 
+default_model, available_models = fetch_models()
+model_options = [default_model] + [m for m in available_models if m != default_model]
+selected = st.sidebar.selectbox("Ollama model", options=model_options or [default_model], index=0)
+custom_model = st.sidebar.text_input("Custom model override (optional)", value="")
+active_model = custom_model.strip() or selected
+st.sidebar.caption("Tip: pull models first, e.g. `ollama pull medgemma:4b`")
+
 with tab1:
     st.subheader("Chat-first Intake")
     for role, text in st.session_state.chat_history:
@@ -62,7 +82,7 @@ with tab1:
         try:
             turn_resp = requests.post(
                 f"{API_BASE}/intake/turn",
-                json={"message": user_text, "state": st.session_state.intake_state},
+                json={"message": user_text, "state": st.session_state.intake_state, "model": active_model},
                 timeout=60,
             )
             turn_resp.raise_for_status()
@@ -92,6 +112,7 @@ with tab1:
                 "conditions": state.get("conditions") or "",
                 "severity": state["severity"],
                 "symptoms": state["symptoms"],
+                "model": active_model,
             }
             try:
                 run_triage(payload)
@@ -141,6 +162,7 @@ with tab2:
                 "conditions": conditions,
                 "severity": severity,
                 "symptoms": symptoms,
+                "model": active_model,
             }
             try:
                 run_triage(payload)

@@ -12,6 +12,7 @@ Local-first clinical triage assistant built with FastAPI + Streamlit + Ollama (M
 - Structured summary output
 - Conversational intake to progressively capture missing fields
 - Optional local voice transcription endpoint (when Whisper is installed)
+- Configurable LLM model (UI selection + `TRIAGE_MODEL` env default)
 - Safety-oriented deterministic rule overrides
 - SQLite logging of original and final outcomes
 
@@ -55,6 +56,12 @@ triage.db        # Created on first backend startup
 3. Run backend:
 
    ```bash
+   TRIAGE_MODEL=medgemma:4b uvicorn app.main:app --reload --port 8000
+   ```
+
+   If omitted, backend defaults to `medgemma:4b`:
+
+   ```bash
    uvicorn app.main:app --reload --port 8000
    ```
 
@@ -95,6 +102,10 @@ Chat-first intake turn. Sends the user message plus current partially-filled sta
 - one follow-up question
 - ready-for-triage boolean
 
+### `GET /models`
+
+Returns backend default model and models currently discoverable from Ollama.
+
 ### `POST /voice/transcribe`
 
 Optional local speech-to-text endpoint using Whisper if installed.
@@ -119,6 +130,7 @@ Response example:
 - Conservative triage bias
 - Rule engine can override unsafe LLM outputs
 - Every request logged with both LLM and final output
+- Missing model errors are returned as clear API `400` errors with guidance to `ollama pull <model>`
 
 ## Notes
 

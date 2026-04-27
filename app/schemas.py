@@ -12,6 +12,7 @@ class TriageRequest(BaseModel):
     conditions: str = Field(default="")
     severity: int = Field(ge=0, le=10)
     symptoms: str = Field(min_length=1, max_length=2000)
+    model: str | None = Field(default=None, max_length=200)
 
 
 class LLMTriageOutput(BaseModel):
@@ -47,6 +48,7 @@ class IntakeState(BaseModel):
 class IntakeTurnRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     state: IntakeState = Field(default_factory=IntakeState)
+    model: str | None = Field(default=None, max_length=200)
 
 
 class IntakeTurnResponse(BaseModel):
@@ -54,3 +56,8 @@ class IntakeTurnResponse(BaseModel):
     missing_fields: list[str]
     ready_for_triage: bool
     assistant_reply: str
+
+
+class ModelInfoResponse(BaseModel):
+    default_model: str
+    available_models: list[str]

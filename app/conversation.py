@@ -1,7 +1,9 @@
 import json
 
-from ollama import chat
+from ollama import ResponseError, chat
 
+from app.config import DEFAULT_TRIAGE_MODEL
+from app.llm import ModelNotFoundError, resolve_model
 from app.schemas import IntakeState
 
 
@@ -48,15 +50,24 @@ def merge_state(current: IntakeState, update: IntakeState) -> IntakeState:
     return IntakeState.model_validate(merged)
 
 
-def extract_state_from_message(message: str, model: str = "medgemma") -> IntakeState:
-    resp = chat(
-        model=model,
-        messages=[
-            {"role": "system", "content": EXTRACTION_PROMPT},
-            {"role": "user", "content": message},
-        ],
-        options={"temperature": 0},
-    )
+def extract_state_from_message(message: str, model: str | None = None) -> IntakeState:
+    resolved_model = resolve_model(model or DEFAULT_TRIAGE_MODEL)
+    try:
+        resp = chat(
+            model=resolved_model,
+            messages=[
+                {"role": "system", "content": EXTRACTION_PROMPT},
+                {"role": "user", "content": message},
+            ],
+            options={"temperature": 0},
+        )
+    except ResponseError as exc:
+        if exc.status_code == 404:
+            raise ModelNotFoundError(
+                f"Ollama model '{resolved_model}' not found. Pull it first (ollama pull {resolved_model}) "
+                "or choose a different model in the UI."
+            ) from exc
+        raise
     content = resp.message.content.strip()
     try:
         parsed = json.loads(content)
@@ -74,17 +85,26 @@ def get_missing_fields(state: IntakeState) -> list[str]:
     return missing
 
 
-def generate_follow_up(state: IntakeState, missing_fields: list[str], model: str = "medgemma") -> str:
+def generate_follow_up(state: IntakeState, missing_fields: list[str], model: str | None = None) -> str:
     if not missing_fields:
         return "Thanks — I have enough details to run triage. Please review and submit."
     prompt = FOLLOW_UP_PROMPT.format(
         missing_fields=", ".join(missing_fields),
         state_json=state.model_dump_json(),
     )
-    resp = chat(
-        model=model,
-        messages=[{"role": "system", "content": prompt}],
-        options={"temperature": 0.2},
-    )
+    resolved_model = resolve_model(model or DEFAULT_TRIAGE_MODEL)
+    try:
+        resp = chat(
+            model=resolved_model,
+            messages=[{"role": "system", "content": prompt}],
+            options={"temperature": 0.2},
+        )
+    except ResponseError as exc:
+        if exc.status_code == 404:
+            raise ModelNotFoundError(
+                f"Ollama model '{resolved_model}' not found. Pull it first (ollama pull {resolved_model}) "
+                "or choose a different model in the UI."
+            ) from exc
+        raise
     reply = resp.message.content.strip()
     return reply or "Could you share a little more detail about your symptoms and severity (0-10)?"

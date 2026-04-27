@@ -1,7 +1,8 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 
+from app.config import DEFAULT_TRIAGE_MODEL
 from app.conversation import (
     extract_state_from_message,
     generate_follow_up,
@@ -9,9 +10,9 @@ from app.conversation import (
     merge_state,
 )
 from app.db import init_db, log_triage
-from app.llm import triage_with_llm
+from app.llm import ModelNotFoundError, list_available_models, triage_with_llm
 from app.rules import apply_rules
-from app.schemas import IntakeTurnRequest, IntakeTurnResponse, TriageRequest, TriageResponse
+from app.schemas import ModelInfoResponse, IntakeTurnRequest, IntakeTurnResponse, TriageRequest, TriageResponse
 from app.voice import transcribe_audio_locally
 
 
@@ -29,9 +30,20 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/models", response_model=ModelInfoResponse)
+def models() -> ModelInfoResponse:
+    return ModelInfoResponse(
+        default_model=DEFAULT_TRIAGE_MODEL,
+        available_models=list_available_models(),
+    )
+
+
 @app.post("/triage", response_model=TriageResponse)
 def triage(payload: TriageRequest) -> TriageResponse:
-    llm_output = triage_with_llm(payload)
+    try:
+        llm_output = triage_with_llm(payload, model=payload.model)
+    except ModelNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     rule_result = apply_rules(payload, llm_output)
 
     response = TriageResponse(
@@ -45,10 +57,13 @@ def triage(payload: TriageRequest) -> TriageResponse:
 
 @app.post("/intake/turn", response_model=IntakeTurnResponse)
 def intake_turn(payload: IntakeTurnRequest) -> IntakeTurnResponse:
-    extracted = extract_state_from_message(payload.message)
-    merged = merge_state(payload.state, extracted)
-    missing = get_missing_fields(merged)
-    reply = generate_follow_up(merged, missing)
+    try:
+        extracted = extract_state_from_message(payload.message, payload.model)
+        merged = merge_state(payload.state, extracted)
+        missing = get_missing_fields(merged)
+        reply = generate_follow_up(merged, missing, payload.model)
+    except ModelNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return IntakeTurnResponse(
         state=merged,
         missing_fields=missing,
